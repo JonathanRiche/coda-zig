@@ -4,12 +4,12 @@ const BASE_URL = "https://coda.io/apis/v1";
 
 const USAGE_TEXT =
     "Usage:\n" ++
-    "  coda_cli [--token <token>] [--json] docs list\n" ++
-    "  coda_cli [--token <token>] [--json] tables list --doc <docId>\n" ++
-    "  coda_cli [--token <token>] [--json] views list --doc <docId>\n" ++
-    "  coda_cli [--token <token>] [--json] rows list --doc <docId> --table <tableIdOrName> [--query <query>] [--limit <n>]\n" ++
-    "  coda_cli --help\n" ++
-    "  coda_cli -h\n" ++
+    "  coda [--token <token>] [--json] docs list\n" ++
+    "  coda [--token <token>] [--json] tables list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] views list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] rows list --doc <docId> --table <tableIdOrName> [--query <query>] [--limit <n>]\n" ++
+    "  coda --help\n" ++
+    "  coda -h\n" ++
     "\n" ++
     "Env:\n" ++
     "  CODA_API_TOKEN  Coda API token (used if --token is not provided)\n";

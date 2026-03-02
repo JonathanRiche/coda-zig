@@ -1,4 +1,4 @@
-# coda_cli (Zig)
+# coda (Zig)
 
 Small Zig CLI for **reading** data from Coda API v1.
 
@@ -22,7 +22,7 @@ export CODA_API_TOKEN="your-token"
 Or pass it directly:
 
 ```bash
-coda_cli --token your-token docs list
+coda --token your-token docs list
 ```
 
 ## Build
@@ -39,13 +39,7 @@ Build and install into your user-local prefix:
 zig build install -Doptimize=ReleaseFast --prefix "/home/rtg/.local"
 ```
 
-Ensure `/home/rtg/.local/bin` is on your `PATH` so `coda_cli` is discoverable.
-
-Optional shell alias:
-
-```bash
-alias coda='coda_cli'
-```
+Ensure `/home/rtg/.local/bin` is on your `PATH` so `coda` is discoverable.
 
 ## Run examples
 
