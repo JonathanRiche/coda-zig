@@ -31,6 +31,22 @@ coda_cli --token your-token docs list
 zig build
 ```
 
+## Install (user-local)
+
+Build and install into your user-local prefix:
+
+```bash
+zig build install -Doptimize=ReleaseFast --prefix "/home/rtg/.local"
+```
+
+Ensure `/home/rtg/.local/bin` is on your `PATH` so `coda_cli` is discoverable.
+
+Optional shell alias:
+
+```bash
+alias coda='coda_cli'
+```
+
 ## Run examples
 
 ```bash
