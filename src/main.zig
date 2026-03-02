@@ -1,14 +1,17 @@
 //! Coda CLI with broad Coda API v1 endpoint coverage.
 const std = @import("std");
+const builtin = @import("builtin");
 
 const BASE_URL = "https://coda.io/apis/v1";
 
 const USAGE_TEXT =
     "Usage:\n" ++
     "  coda [--token <token>] [--json] docs list\n" ++
+    "  coda [--token <token>] [--json] folders list\n" ++
     "  coda [--token <token>] [--json] tables list --doc <docId>\n" ++
     "  coda [--token <token>] [--json] views list --doc <docId>\n" ++
     "  coda [--token <token>] [--json] rows list --doc <docId> --table <tableIdOrName> [--query <query>] [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] <resource> <action> --help\n" ++
     "  coda <resource> --help\n" ++
     "  coda <resource> <action> --help\n" ++
     "  coda --help\n" ++
@@ -24,7 +27,10 @@ const USAGE_TEXT =
 const HELP_DOCS_TEXT =
     "Usage:\n" ++
     "  coda [--token <token>] [--json] docs list\n" ++
+    "  coda [--token <token>] [--json] docs create (--payload <json> | --file <path>)\n" ++
     "  coda [--token <token>] [--json] docs get --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] docs update --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] docs delete --doc <docId>\n" ++
     "\n" ++
     "Aliases:\n" ++
     "  --doc-id  Alias of --doc\n";
@@ -34,7 +40,10 @@ const HELP_ROWS_TEXT =
     "  coda [--token <token>] [--json] rows list --doc <docId> --table <tableIdOrName> [--query <query>] [--limit <n>]\n" ++
     "  coda [--token <token>] [--json] rows get --doc <docId> --table <tableIdOrName> --row <rowIdOrName>\n" ++
     "  coda [--token <token>] [--json] rows upsert --doc <docId> --table <tableIdOrName> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] rows update --doc <docId> --table <tableIdOrName> --row <rowIdOrName> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] rows delete-many --doc <docId> --table <tableIdOrName> (--payload <json> | --file <path>)\n" ++
     "  coda [--token <token>] [--json] rows delete --doc <docId> --table <tableIdOrName> --row <rowIdOrName>\n" ++
+    "  coda [--token <token>] [--json] rows button --doc <docId> --table <tableIdOrName> --row <rowIdOrName> --column <columnIdOrName>\n" ++
     "\n" ++
     "Aliases:\n" ++
     "  --doc-id, --table-id, --row-id\n" ++
@@ -46,6 +55,7 @@ const CliError = error{
     MissingValue,
     MissingFlag,
     InvalidLimit,
+    InvalidBoolean,
     MalformedJson,
     InvalidResponse,
     HttpError,
@@ -93,6 +103,10 @@ const ApiClient = struct {
 
     fn put(self: ApiClient, path_or_url: []const u8, body: []const u8) !ApiResponse {
         return self.request(.PUT, path_or_url, body);
+    }
+
+    fn patch(self: ApiClient, path_or_url: []const u8, body: []const u8) !ApiResponse {
+        return self.request(.PATCH, path_or_url, body);
     }
 
     fn delete(self: ApiClient, path_or_url: []const u8) !ApiResponse {
@@ -204,6 +218,10 @@ fn run(allocator: std.mem.Allocator) !u8 {
         try cmdDocs(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
         return 0;
     }
+    if (std.mem.eql(u8, resource, "folders")) {
+        try cmdFolders(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
     if (std.mem.eql(u8, resource, "pages")) {
         try cmdPages(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
         return 0;
@@ -240,16 +258,87 @@ fn run(allocator: std.mem.Allocator) !u8 {
         try cmdMutations(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
         return 0;
     }
+    if (std.mem.eql(u8, resource, "publish")) {
+        try cmdPublish(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "automations")) {
+        try cmdAutomations(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "account")) {
+        try cmdAccount(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "analytics")) {
+        try cmdAnalytics(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "resolve")) {
+        try cmdResolve(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "domains")) {
+        try cmdDomains(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
+    if (std.mem.eql(u8, resource, "workspaces")) {
+        try cmdWorkspaces(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
+        return 0;
+    }
 
     return CliError.Usage;
 }
 
 fn cmdDocs(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
     if (std.mem.eql(u8, action, "list")) {
-        try ensureSupportedFlags(args, start, &.{});
-        var data = try fetchPaginatedItems(allocator, api, "/docs");
+        try ensureSupportedFlags(args, start, &.{ "--is-owner", "--is-published", "--query", "--source-doc", "--is-starred", "--in-gallery", "--workspace", "--workspace-id", "--folder", "--folder-id", "--limit", "--page-size" });
+        const is_owner = try optionalFlag(args, "--is-owner", start);
+        const is_published = try optionalFlag(args, "--is-published", start);
+        const query = try optionalFlag(args, "--query", start);
+        const source_doc = try optionalFlag(args, "--source-doc", start);
+        const is_starred = try optionalFlag(args, "--is-starred", start);
+        const in_gallery = try optionalFlag(args, "--in-gallery", start);
+        const workspace = try optionalFlagAny(args, &.{ "--workspace", "--workspace-id" }, start);
+        const folder = try optionalFlagAny(args, &.{ "--folder", "--folder-id" }, start);
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+
+        if (is_owner) |value| _ = try parseBoolean(value, "--is-owner");
+        if (is_published) |value| _ = try parseBoolean(value, "--is-published");
+        if (is_starred) |value| _ = try parseBoolean(value, "--is-starred");
+        if (in_gallery) |value| _ = try parseBoolean(value, "--in-gallery");
+        if (limit) |value| {
+            _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        }
+
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (is_owner) |value| try appendParam(allocator, &params, "isOwner", value);
+        if (is_published) |value| try appendParam(allocator, &params, "isPublished", value);
+        if (query) |value| try appendParam(allocator, &params, "query", value);
+        if (source_doc) |value| try appendParam(allocator, &params, "sourceDoc", value);
+        if (is_starred) |value| try appendParam(allocator, &params, "isStarred", value);
+        if (in_gallery) |value| try appendParam(allocator, &params, "inGallery", value);
+        if (workspace) |value| try appendParam(allocator, &params, "workspaceId", value);
+        if (folder) |value| try appendParam(allocator, &params, "folderId", value);
+        if (limit) |value| try appendParam(allocator, &params, "limit", value);
+
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/docs{s}{s}", .{ prefix, params.items });
+        defer allocator.free(path);
+
+        var data = try fetchPaginatedItems(allocator, api, path);
         defer data.deinit();
         try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "create")) {
+        try ensureSupportedFlags(args, start, &.{ "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        var response = try api.post("/docs", body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
         return;
     }
     if (std.mem.eql(u8, action, "get")) {
@@ -258,6 +347,96 @@ fn cmdDocs(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, arg
         const path = try std.fmt.allocPrint(allocator, "/docs/{s}", .{doc});
         defer allocator.free(path);
         try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "update")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}", .{doc});
+        defer allocator.free(path);
+        var response = try api.patch(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}", .{doc});
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    return CliError.Usage;
+}
+
+fn cmdFolders(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (std.mem.eql(u8, action, "list")) {
+        try ensureSupportedFlags(args, start, &.{ "--workspace", "--workspace-id", "--is-starred", "--limit", "--page-size" });
+        const workspace = try optionalFlagAny(args, &.{ "--workspace", "--workspace-id" }, start);
+        const is_starred = try optionalFlag(args, "--is-starred", start);
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+
+        if (is_starred) |value| _ = try parseBoolean(value, "--is-starred");
+        if (limit) |value| {
+            _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        }
+
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (workspace) |value| try appendParam(allocator, &params, "workspaceId", value);
+        if (is_starred) |value| try appendParam(allocator, &params, "isStarred", value);
+        if (limit) |value| try appendParam(allocator, &params, "limit", value);
+
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/folders{s}{s}", .{ prefix, params.items });
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "create")) {
+        try ensureSupportedFlags(args, start, &.{ "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        var response = try api.post("/folders", body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "get")) {
+        try ensureSupportedFlags(args, start, &.{ "--folder", "--folder-id" });
+        const folder = try requireFlagAny(args, &.{ "--folder", "--folder-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/folders/{s}", .{folder});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "update")) {
+        try ensureSupportedFlags(args, start, &.{ "--folder", "--folder-id", "--payload", "--file" });
+        const folder = try requireFlagAny(args, &.{ "--folder", "--folder-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/folders/{s}", .{folder});
+        defer allocator.free(path);
+        var response = try api.patch(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--folder", "--folder-id" });
+        const folder = try requireFlagAny(args, &.{ "--folder", "--folder-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/folders/{s}", .{folder});
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
         return;
     }
     return CliError.Usage;
@@ -282,6 +461,78 @@ fn cmdPages(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, ar
         try getAndRenderOne(allocator, api, path, json_mode);
         return;
     }
+    if (std.mem.eql(u8, action, "create")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages", .{doc});
+        defer allocator.free(path);
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "update")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id", "--payload", "--file" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}", .{ doc, page });
+        defer allocator.free(path);
+        var response = try api.put(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}", .{ doc, page });
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "content")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}/content", .{ doc, page });
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "content-delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}/content", .{ doc, page });
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "export")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id", "--payload", "--file" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}/export", .{ doc, page });
+        defer allocator.free(path);
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "export-status")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--page", "--page-id", "--request", "--request-id" });
+        const page = try requireFlagAny(args, &.{ "--page", "--page-id" }, start);
+        const request_id = try requireFlagAny(args, &.{ "--request", "--request-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/pages/{s}/export/{s}", .{ doc, page, request_id });
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
     return CliError.Usage;
 }
 
@@ -297,9 +548,16 @@ fn cmdTables(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, a
         return;
     }
     if (std.mem.eql(u8, action, "get")) {
-        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id" });
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--use-updated-table-layouts" });
         const table = try requireFlagAny(args, &.{ "--table", "--table-id" }, start);
-        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}", .{ doc, table });
+        const use_updated_table_layouts = try optionalFlag(args, "--use-updated-table-layouts", start);
+        if (use_updated_table_layouts) |value| _ = try parseBoolean(value, "--use-updated-table-layouts");
+        const suffix = if (use_updated_table_layouts) |value|
+            try std.fmt.allocPrint(allocator, "?useUpdatedTableLayouts={s}", .{value})
+        else
+            try allocator.dupe(u8, "");
+        defer allocator.free(suffix);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}{s}", .{ doc, table, suffix });
         defer allocator.free(path);
         try getAndRenderOne(allocator, api, path, json_mode);
         return;
@@ -333,8 +591,17 @@ fn cmdColumns(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, 
     const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
     const table = try requireFlagAny(args, &.{ "--table", "--table-id" }, start);
     if (std.mem.eql(u8, action, "list")) {
-        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id" });
-        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/columns", .{ doc, table });
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--limit", "--page-size", "--visible-only" });
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        const visible_only = try optionalFlag(args, "--visible-only", start);
+        if (limit) |value| _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        if (visible_only) |value| _ = try parseBoolean(value, "--visible-only");
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (limit) |value| try appendParam(allocator, &params, "limit", value);
+        if (visible_only) |value| try appendParam(allocator, &params, "visibleOnly", value);
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/columns{s}{s}", .{ doc, table, prefix, params.items });
         defer allocator.free(path);
         var data = try fetchPaginatedItems(allocator, api, path);
         defer data.deinit();
@@ -357,12 +624,18 @@ fn cmdRows(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, arg
     const table = try requireFlagAny(args, &.{ "--table", "--table-id" }, start);
 
     if (std.mem.eql(u8, action, "list")) {
-        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--query", "--filter", "--limit", "--page-size" });
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--query", "--filter", "--limit", "--page-size", "--use-column-names", "--value-format", "--visible-only", "--sort-by" });
         const query = try optionalFlagAny(args, &.{ "--query", "--filter" }, start);
         const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        const use_column_names = try optionalFlag(args, "--use-column-names", start);
+        const value_format = try optionalFlag(args, "--value-format", start);
+        const visible_only = try optionalFlag(args, "--visible-only", start);
+        const sort_by = try optionalFlag(args, "--sort-by", start);
         if (limit) |value| {
             _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
         }
+        if (use_column_names) |value| _ = try parseBoolean(value, "--use-column-names");
+        if (visible_only) |value| _ = try parseBoolean(value, "--visible-only");
 
         var params: std.ArrayList(u8) = .empty;
         defer params.deinit(allocator);
@@ -371,6 +644,18 @@ fn cmdRows(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, arg
         }
         if (limit) |l| {
             try appendParam(allocator, &params, "limit", l);
+        }
+        if (use_column_names) |value| {
+            try appendParam(allocator, &params, "useColumnNames", value);
+        }
+        if (value_format) |value| {
+            try appendParam(allocator, &params, "valueFormat", value);
+        }
+        if (visible_only) |value| {
+            try appendParam(allocator, &params, "visibleOnly", value);
+        }
+        if (sort_by) |value| {
+            try appendParam(allocator, &params, "sortBy", value);
         }
 
         const prefix = if (params.items.len == 0) "" else "?";
@@ -384,22 +669,71 @@ fn cmdRows(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, arg
     }
 
     if (std.mem.eql(u8, action, "get")) {
-        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--row", "--row-id" });
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--row", "--row-id", "--use-column-names", "--value-format" });
         const row = try requireFlagAny(args, &.{ "--row", "--row-id" }, start);
-        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows/{s}", .{ doc, table, row });
+        const use_column_names = try optionalFlag(args, "--use-column-names", start);
+        const value_format = try optionalFlag(args, "--value-format", start);
+        if (use_column_names) |value| _ = try parseBoolean(value, "--use-column-names");
+
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (use_column_names) |value| {
+            try appendParam(allocator, &params, "useColumnNames", value);
+        }
+        if (value_format) |value| {
+            try appendParam(allocator, &params, "valueFormat", value);
+        }
+
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows/{s}{s}{s}", .{ doc, table, row, prefix, params.items });
         defer allocator.free(path);
         try getAndRenderOne(allocator, api, path, json_mode);
         return;
     }
 
     if (std.mem.eql(u8, action, "upsert")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--payload", "--file", "--disable-parsing" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const disable_parsing = try optionalFlag(args, "--disable-parsing", start);
+        if (disable_parsing) |value| _ = try parseBoolean(value, "--disable-parsing");
+
+        const prefix = if (disable_parsing != null) "?disableParsing=" else "";
+        const suffix = disable_parsing orelse "";
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows{s}{s}", .{ doc, table, prefix, suffix });
+        defer allocator.free(path);
+
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+
+    if (std.mem.eql(u8, action, "update")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--row", "--row-id", "--payload", "--file", "--disable-parsing" });
+        const row = try requireFlagAny(args, &.{ "--row", "--row-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const disable_parsing = try optionalFlag(args, "--disable-parsing", start);
+        if (disable_parsing) |value| _ = try parseBoolean(value, "--disable-parsing");
+
+        const prefix = if (disable_parsing != null) "?disableParsing=" else "";
+        const suffix = disable_parsing orelse "";
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows/{s}{s}{s}", .{ doc, table, row, prefix, suffix });
+        defer allocator.free(path);
+        var response = try api.put(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+
+    if (std.mem.eql(u8, action, "delete-many")) {
         try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--payload", "--file" });
         const body = try readPayload(allocator, args, start);
         defer allocator.free(body);
         const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows", .{ doc, table });
         defer allocator.free(path);
-
-        var response = try api.post(path, body);
+        var response = try api.request(.DELETE, path, body);
         defer response.deinit(allocator);
         try renderRawJsonBody(allocator, response.body, json_mode);
         return;
@@ -417,6 +751,18 @@ fn cmdRows(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, arg
         } else {
             try renderRawJsonBody(allocator, response.body, json_mode);
         }
+        return;
+    }
+
+    if (std.mem.eql(u8, action, "button")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--table", "--table-id", "--row", "--row-id", "--column", "--column-id" });
+        const row = try requireFlagAny(args, &.{ "--row", "--row-id" }, start);
+        const column = try requireFlagAny(args, &.{ "--column", "--column-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/tables/{s}/rows/{s}/buttons/{s}", .{ doc, table, row, column });
+        defer allocator.free(path);
+        var response = try api.post(path, "{}");
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
         return;
     }
 
@@ -493,14 +839,91 @@ fn cmdControls(allocator: std.mem.Allocator, api: ApiClient, action: []const u8,
 }
 
 fn cmdPermissions(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
-    if (!std.mem.eql(u8, action, "list")) return CliError.Usage;
-    try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
     const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
-    const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/permissions", .{doc});
-    defer allocator.free(path);
-    var data = try fetchPaginatedItems(allocator, api, path);
-    defer data.deinit();
-    try renderList(data.items.items, json_mode);
+    if (std.mem.eql(u8, action, "metadata")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/metadata", .{doc});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "list")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--limit", "--page-size" });
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| {
+            _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        }
+
+        const path = if (limit) |value|
+            try std.fmt.allocPrint(allocator, "/docs/{s}/acl/permissions?limit={s}", .{ doc, value })
+        else
+            try std.fmt.allocPrint(allocator, "/docs/{s}/acl/permissions", .{doc});
+        defer allocator.free(path);
+
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "add")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/permissions", .{doc});
+        defer allocator.free(path);
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--permission", "--permission-id" });
+        const permission = try requireFlagAny(args, &.{ "--permission", "--permission-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/permissions/{s}", .{ doc, permission });
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "principals")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--query", "--limit", "--page-size" });
+        const query = try optionalFlag(args, "--query", start);
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| {
+            _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        }
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (query) |value| try appendParam(allocator, &params, "query", value);
+        if (limit) |value| try appendParam(allocator, &params, "limit", value);
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/principals/search{s}{s}", .{ doc, prefix, params.items });
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "settings")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/settings", .{doc});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "settings-update")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/acl/settings", .{doc});
+        defer allocator.free(path);
+        var response = try api.patch(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    return CliError.Usage;
 }
 
 fn cmdMutations(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
@@ -536,6 +959,244 @@ fn cmdMutations(allocator: std.mem.Allocator, api: ApiClient, action: []const u8
 
     printStderr("Missing required flag: --request or --mutation\n", .{});
     return CliError.MissingFlag;
+}
+
+fn cmdPublish(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+    if (std.mem.eql(u8, action, "categories")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        try getAndRenderOne(allocator, api, "/categories", json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "set")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/publish", .{doc});
+        defer allocator.free(path);
+        var response = try api.put(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "unset")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/publish", .{doc});
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    return CliError.Usage;
+}
+
+fn cmdAutomations(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (!std.mem.eql(u8, action, "trigger")) return CliError.Usage;
+    try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--rule", "--rule-id", "--payload", "--file" });
+    const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+    const rule = try requireFlagAny(args, &.{ "--rule", "--rule-id" }, start);
+    const body = (readPayload(allocator, args, start) catch |err| switch (err) {
+        CliError.MissingFlag => try allocator.dupe(u8, "{}"),
+        else => return err,
+    });
+    defer allocator.free(body);
+    const path = try std.fmt.allocPrint(allocator, "/docs/{s}/hooks/automation/{s}", .{ doc, rule });
+    defer allocator.free(path);
+    var response = try api.post(path, body);
+    defer response.deinit(allocator);
+    try renderRawJsonBody(allocator, response.body, json_mode);
+}
+
+fn cmdAccount(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (!std.mem.eql(u8, action, "whoami")) return CliError.Usage;
+    try ensureSupportedFlags(args, start, &.{});
+    try getAndRenderOne(allocator, api, "/whoami", json_mode);
+}
+
+fn cmdAnalytics(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (std.mem.eql(u8, action, "docs")) {
+        try ensureSupportedFlags(args, start, &.{ "--limit", "--page-size" });
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        const path = if (limit) |value|
+            try std.fmt.allocPrint(allocator, "/analytics/docs?limit={s}", .{value})
+        else
+            try allocator.dupe(u8, "/analytics/docs");
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "doc-pages")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--limit", "--page-size" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        const suffix = if (limit) |value| try std.fmt.allocPrint(allocator, "?limit={s}", .{value}) else try allocator.dupe(u8, "");
+        defer allocator.free(suffix);
+        const path = try std.fmt.allocPrint(allocator, "/analytics/docs/{s}/pages{s}", .{ doc, suffix });
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "docs-summary")) {
+        try ensureSupportedFlags(args, start, &.{});
+        try getAndRenderOne(allocator, api, "/analytics/docs/summary", json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "packs")) {
+        try ensureSupportedFlags(args, start, &.{ "--limit", "--page-size" });
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        const path = if (limit) |value|
+            try std.fmt.allocPrint(allocator, "/analytics/packs?limit={s}", .{value})
+        else
+            try allocator.dupe(u8, "/analytics/packs");
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "packs-summary")) {
+        try ensureSupportedFlags(args, start, &.{});
+        try getAndRenderOne(allocator, api, "/analytics/packs/summary", json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "pack-formulas")) {
+        try ensureSupportedFlags(args, start, &.{ "--pack", "--pack-id", "--pack-formula-names", "--pack-formula-types", "--limit", "--page-size" });
+        const pack = try requireFlagAny(args, &.{ "--pack", "--pack-id" }, start);
+        const names = try optionalFlag(args, "--pack-formula-names", start);
+        const types = try optionalFlag(args, "--pack-formula-types", start);
+        const limit = try optionalFlagAny(args, &.{ "--limit", "--page-size" }, start);
+        if (limit) |value| _ = std.fmt.parseInt(usize, value, 10) catch return CliError.InvalidLimit;
+        var params: std.ArrayList(u8) = .empty;
+        defer params.deinit(allocator);
+        if (names) |value| try appendParam(allocator, &params, "packFormulaNames", value);
+        if (types) |value| try appendParam(allocator, &params, "packFormulaTypes", value);
+        if (limit) |value| try appendParam(allocator, &params, "limit", value);
+        const prefix = if (params.items.len == 0) "" else "?";
+        const path = try std.fmt.allocPrint(allocator, "/analytics/packs/{s}/formulas{s}{s}", .{ pack, prefix, params.items });
+        defer allocator.free(path);
+        var data = try fetchPaginatedItems(allocator, api, path);
+        defer data.deinit();
+        try renderList(data.items.items, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "updated")) {
+        try ensureSupportedFlags(args, start, &.{});
+        try getAndRenderOne(allocator, api, "/analytics/updated", json_mode);
+        return;
+    }
+    return CliError.Usage;
+}
+
+fn cmdResolve(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (!std.mem.eql(u8, action, "link")) return CliError.Usage;
+    try ensureSupportedFlags(args, start, &.{ "--url", "--degrade-gracefully" });
+    const url = try requireFlag(args, "--url", start);
+    const degrade = try optionalFlag(args, "--degrade-gracefully", start);
+    if (degrade) |value| _ = try parseBoolean(value, "--degrade-gracefully");
+    var params: std.ArrayList(u8) = .empty;
+    defer params.deinit(allocator);
+    try appendParam(allocator, &params, "url", url);
+    if (degrade) |value| try appendParam(allocator, &params, "degradeGracefully", value);
+    const path = try std.fmt.allocPrint(allocator, "/resolveBrowserLink?{s}", .{params.items});
+    defer allocator.free(path);
+    try getAndRenderOne(allocator, api, path, json_mode);
+}
+
+fn cmdDomains(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    if (std.mem.eql(u8, action, "list")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/domains", .{doc});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "add")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--payload", "--file" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/domains", .{doc});
+        defer allocator.free(path);
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "update")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--domain", "--payload", "--file" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const domain = try requireFlag(args, "--domain", start);
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/domains/{s}", .{ doc, domain });
+        defer allocator.free(path);
+        var response = try api.patch(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "delete")) {
+        try ensureSupportedFlags(args, start, &.{ "--doc", "--doc-id", "--domain" });
+        const doc = try requireFlagAny(args, &.{ "--doc", "--doc-id" }, start);
+        const domain = try requireFlag(args, "--domain", start);
+        const path = try std.fmt.allocPrint(allocator, "/docs/{s}/domains/{s}", .{ doc, domain });
+        defer allocator.free(path);
+        var response = try api.delete(path);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "provider")) {
+        try ensureSupportedFlags(args, start, &.{"--domain"});
+        const domain = try requireFlag(args, "--domain", start);
+        const path = try std.fmt.allocPrint(allocator, "/domains/provider/{s}", .{domain});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    return CliError.Usage;
+}
+
+fn cmdWorkspaces(allocator: std.mem.Allocator, api: ApiClient, action: []const u8, args: []const []const u8, start: usize, json_mode: bool) !void {
+    const workspace = try requireFlagAny(args, &.{ "--workspace", "--workspace-id" }, start);
+    if (std.mem.eql(u8, action, "roles")) {
+        try ensureSupportedFlags(args, start, &.{ "--workspace", "--workspace-id" });
+        const path = try std.fmt.allocPrint(allocator, "/workspaces/{s}/roles", .{workspace});
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "users")) {
+        try ensureSupportedFlags(args, start, &.{ "--workspace", "--workspace-id", "--included-roles" });
+        const included_roles = try optionalFlag(args, "--included-roles", start);
+        const suffix = if (included_roles) |value| try std.fmt.allocPrint(allocator, "?includedRoles={s}", .{value}) else try allocator.dupe(u8, "");
+        defer allocator.free(suffix);
+        const path = try std.fmt.allocPrint(allocator, "/workspaces/{s}/users{s}", .{ workspace, suffix });
+        defer allocator.free(path);
+        try getAndRenderOne(allocator, api, path, json_mode);
+        return;
+    }
+    if (std.mem.eql(u8, action, "set-role")) {
+        try ensureSupportedFlags(args, start, &.{ "--workspace", "--workspace-id", "--payload", "--file" });
+        const body = try readPayload(allocator, args, start);
+        defer allocator.free(body);
+        const path = try std.fmt.allocPrint(allocator, "/workspaces/{s}/users/role", .{workspace});
+        defer allocator.free(path);
+        var response = try api.post(path, body);
+        defer response.deinit(allocator);
+        try renderRawJsonBody(allocator, response.body, json_mode);
+        return;
+    }
+    return CliError.Usage;
 }
 
 fn fetchPaginatedItems(allocator: std.mem.Allocator, api: ApiClient, first_path_or_url: []const u8) !PagedItems {
@@ -710,6 +1371,13 @@ fn ensureValidJson(raw: []const u8, source_flag: []const u8) !void {
     parsed.deinit();
 }
 
+fn parseBoolean(raw: []const u8, flag_name: []const u8) !bool {
+    if (std.mem.eql(u8, raw, "true")) return true;
+    if (std.mem.eql(u8, raw, "false")) return false;
+    printStderr("Invalid value for {s}; expected true or false.\n", .{flag_name});
+    return CliError.InvalidBoolean;
+}
+
 fn handleCliError(err: anyerror) u8 {
     switch (err) {
         CliError.Usage => {
@@ -727,6 +1395,9 @@ fn handleCliError(err: anyerror) u8 {
         },
         CliError.InvalidLimit => {
             printStderr("Invalid value for --limit; expected an integer.\n", .{});
+            return 2;
+        },
+        CliError.InvalidBoolean => {
             return 2;
         },
         CliError.MalformedJson => {
@@ -834,6 +1505,18 @@ fn printHelp(target: HelpSelection) void {
                 printStdout("Usage:\n  coda [--token <token>] [--json] docs get --doc <docId>\n", .{});
                 return;
             }
+            if (std.mem.eql(u8, action, "create")) {
+                printStdout("Usage:\n  coda [--token <token>] [--json] docs create (--payload <json> | --file <path>)\n", .{});
+                return;
+            }
+            if (std.mem.eql(u8, action, "update")) {
+                printStdout("Usage:\n  coda [--token <token>] [--json] docs update --doc <docId> (--payload <json> | --file <path>)\n", .{});
+                return;
+            }
+            if (std.mem.eql(u8, action, "delete")) {
+                printStdout("Usage:\n  coda [--token <token>] [--json] docs delete --doc <docId>\n", .{});
+                return;
+            }
         }
         printStdout("{s}", .{HELP_DOCS_TEXT});
         return;
@@ -847,6 +1530,14 @@ fn printHelp(target: HelpSelection) void {
             }
             if (std.mem.eql(u8, action, "upsert")) {
                 printStdout("Usage:\n  coda [--token <token>] [--json] rows upsert --doc <docId> --table <tableIdOrName> (--payload <json> | --file <path>)\n", .{});
+                return;
+            }
+            if (std.mem.eql(u8, action, "update")) {
+                printStdout("Usage:\n  coda [--token <token>] [--json] rows update --doc <docId> --table <tableIdOrName> --row <rowIdOrName> (--payload <json> | --file <path>)\n", .{});
+                return;
+            }
+            if (std.mem.eql(u8, action, "delete-many")) {
+                printStdout("Usage:\n  coda [--token <token>] [--json] rows delete-many --doc <docId> --table <tableIdOrName> (--payload <json> | --file <path>)\n", .{});
                 return;
             }
         }
@@ -965,6 +1656,7 @@ fn printStdout(comptime format: []const u8, args: anytype) void {
 }
 
 fn printStderr(comptime format: []const u8, args: anytype) void {
+    if (builtin.is_test) return;
     var buf: [4096]u8 = undefined;
     var writer = std.fs.File.stderr().writer(&buf);
     defer writer.interface.flush() catch {};
@@ -1021,4 +1713,20 @@ test "ensureSupportedFlags rejects unsupported flag" {
 test "optionalFlagAny detects conflicting alias values" {
     const args = [_][]const u8{ "rows", "list", "--doc", "d1", "--doc-id", "d2" };
     try std.testing.expectError(CliError.Usage, optionalFlagAny(&args, &.{ "--doc", "--doc-id" }, 2));
+}
+
+test "parseBoolean accepts true and false" {
+    try std.testing.expect(try parseBoolean("true", "--flag"));
+    try std.testing.expect(!(try parseBoolean("false", "--flag")));
+}
+
+test "parseBoolean rejects invalid values" {
+    try std.testing.expectError(CliError.InvalidBoolean, parseBoolean("yes", "--flag"));
+}
+
+test "optionalFlagAny allows matching alias values" {
+    const args = [_][]const u8{ "rows", "list", "--doc", "d1", "--doc-id", "d1" };
+    const value = try optionalFlagAny(&args, &.{ "--doc", "--doc-id" }, 2);
+    try std.testing.expect(value != null);
+    try std.testing.expectEqualStrings("d1", value.?);
 }

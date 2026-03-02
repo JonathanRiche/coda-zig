@@ -10,6 +10,7 @@ Small Zig CLI for Coda API v1 with broad coverage across read and mutation endpo
 - Pagination support for both `nextPageLink` and `nextPageToken`
 - Human-readable output by default, raw JSON with `--json`
 - Row upsert payload input from inline JSON (`--payload`) or file (`--file`)
+- Coverage for docs/folders/pages/tables/rows/permissions/publishing/analytics/account/workspaces/domains
 
 ## Auth
 
@@ -51,11 +52,21 @@ Help is available at three levels:
 
 - `coda docs list`
 - `coda docs get --doc <docId>`
+- `coda docs create --payload <json>`
+- `coda docs update --doc <docId> --payload <json>`
+- `coda docs delete --doc <docId>`
 
 ### Pages
 
 - `coda pages list --doc <docId>`
 - `coda pages get --doc <docId> --page <pageIdOrName>`
+- `coda pages create --doc <docId> --payload <json>`
+- `coda pages update --doc <docId> --page <pageIdOrName> --payload <json>`
+- `coda pages delete --doc <docId> --page <pageIdOrName>`
+- `coda pages content --doc <docId> --page <pageIdOrName>`
+- `coda pages content-delete --doc <docId> --page <pageIdOrName>`
+- `coda pages export --doc <docId> --page <pageIdOrName> --payload <json>`
+- `coda pages export-status --doc <docId> --page <pageIdOrName> --request <requestId>`
 
 ### Tables
 
@@ -79,6 +90,9 @@ Help is available at three levels:
 - `coda rows upsert --doc <docId> --table <tableIdOrName> --payload <json>`
 - `coda rows upsert --doc <docId> --table <tableIdOrName> --file <path.json>`
 - `coda rows delete --doc <docId> --table <tableIdOrName> --row <rowIdOrName>`
+- `coda rows update --doc <docId> --table <tableIdOrName> --row <rowIdOrName> --payload <json>`
+- `coda rows delete-many --doc <docId> --table <tableIdOrName> --payload <json>`
+- `coda rows button --doc <docId> --table <tableIdOrName> --row <rowIdOrName> --column <columnIdOrName>`
 
 ### Formulas
 
@@ -95,6 +109,62 @@ Help is available at three levels:
 ### Permissions
 
 - `coda permissions list --doc <docId>`
+- `coda permissions metadata --doc <docId>`
+- `coda permissions add --doc <docId> --payload <json>`
+- `coda permissions delete --doc <docId> --permission <permissionId>`
+- `coda permissions principals --doc <docId> [--query <text>]`
+- `coda permissions settings --doc <docId>`
+- `coda permissions settings-update --doc <docId> --payload <json>`
+
+### Folders
+
+- `coda folders list`
+- `coda folders create --payload <json>`
+- `coda folders get --folder <folderId>`
+- `coda folders update --folder <folderId> --payload <json>`
+- `coda folders delete --folder <folderId>`
+
+### Publishing
+
+- `coda publish categories --doc <docId>`
+- `coda publish set --doc <docId> --payload <json>`
+- `coda publish unset --doc <docId>`
+
+### Automations
+
+- `coda automations trigger --doc <docId> --rule <ruleId> [--payload <json>]`
+
+### Domains
+
+- `coda domains list --doc <docId>`
+- `coda domains add --doc <docId> --payload <json>`
+- `coda domains update --doc <docId> --domain <customDomain> --payload <json>`
+- `coda domains delete --doc <docId> --domain <customDomain>`
+- `coda domains provider --domain <customDomain>`
+
+### Account
+
+- `coda account whoami`
+
+### Analytics
+
+- `coda analytics docs [--limit <n>]`
+- `coda analytics doc-pages --doc <docId> [--limit <n>]`
+- `coda analytics docs-summary`
+- `coda analytics packs [--limit <n>]`
+- `coda analytics packs-summary`
+- `coda analytics pack-formulas --pack <packId> [--pack-formula-names <csv>] [--pack-formula-types <csv>]`
+- `coda analytics updated`
+
+### Resolve
+
+- `coda resolve link --url <browserLink> [--degrade-gracefully <true|false>]`
+
+### Workspaces
+
+- `coda workspaces roles --workspace <workspaceId>`
+- `coda workspaces users --workspace <workspaceId> [--included-roles <csv>]`
+- `coda workspaces set-role --workspace <workspaceId> --payload <json>`
 
 ### Mutations
 
@@ -128,6 +198,9 @@ zig build run -- rows list --help
 
 # List docs
 zig build run -- docs list
+
+# Create a doc
+zig build run -- docs create --payload '{"title":"API-created doc"}'
 
 # Get a single doc
 zig build run -- docs get --doc AbCDeFGH
@@ -191,6 +264,21 @@ zig build run -- controls set --doc AbCDeFGH --control ctrl-a1b2 --value-json '4
 
 # List permissions
 zig build run -- permissions list --doc AbCDeFGH
+
+# Get sharing metadata
+zig build run -- permissions metadata --doc AbCDeFGH
+
+# Publish a doc
+zig build run -- publish set --doc AbCDeFGH --payload '{"mode":"view","discoverable":false}'
+
+# Trigger an automation rule
+zig build run -- automations trigger --doc AbCDeFGH --rule rule-a1b2
+
+# Who am I (token owner)
+zig build run -- account whoami
+
+# Resolve a browser link
+zig build run -- resolve link --url "https://coda.io/d/_dAbCDeFGH"
 
 # Mutation status by request id
 zig build run -- mutations get --request req-abc123
