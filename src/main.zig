@@ -25,6 +25,7 @@ const USAGE_TEXT =
     "Resources:\n" ++
     "  docs         list, get, create, update, delete docs\n" ++
     "  pages        list, get, create, update, delete, content, export pages in a doc\n" ++
+    "               supports page body writes via contentUpdate on canvas pages\n" ++
     "  tables       list, get tables in a doc\n" ++
     "  rows         list, get, upsert, update, delete rows in existing tables\n" ++
     "  columns      list, get columns in a table\n" ++
@@ -45,6 +46,11 @@ const USAGE_TEXT =
     "Notes:\n" ++
     "  Tables are read-only at the table resource level in this CLI.\n" ++
     "  Use pages to create/edit doc structure and rows to mutate data in existing tables.\n" ++
+    "  Existing canvas page bodies can be appended/replaced with markdown or HTML via pages update.\n" ++
+    "\n" ++
+    "Docs:\n" ++
+    "  README: https://github.com/JonathanRiche/coda-zig#readme\n" ++
+    "  Coda API: https://coda.io/developers/apis/v1\n" ++
     "\n" ++
     "Env:\n" ++
     "  CODA_API_TOKEN  Coda API token (used if --token is not provided)\n";
@@ -99,10 +105,18 @@ const HELP_PAGES_TEXT =
     "  coda [--token <token>] [--json] pages export --doc <docId> --page <pageIdOrName> (--payload <json> | --file <path>)\n" ++
     "  coda [--token <token>] [--json] pages export-status --doc <docId> --page <pageIdOrName> --request <requestId>\n" ++
     "\n" ++
+    "Body updates:\n" ++
+    "  pages update accepts contentUpdate for existing canvas pages.\n" ++
+    "  contentUpdate supports insertionMode append/replace and canvasContent in markdown or html.\n" ++
+    "\n" ++
     "Aliases:\n" ++
     "  --doc-id   Alias of --doc\n" ++
     "  --page-id  Alias of --page\n" ++
-    "  --request-id  Alias of --request\n";
+    "  --request-id  Alias of --request\n" ++
+    "\n" ++
+    "Docs:\n" ++
+    "  README: https://github.com/JonathanRiche/coda-zig#readme\n" ++
+    "  Coda API: https://coda.io/developers/apis/v1#tag/Doc-Structure/operation/updatePage\n";
 
 const HELP_TABLES_TEXT =
     "Usage:\n" ++
@@ -112,10 +126,16 @@ const HELP_TABLES_TEXT =
     "Notes:\n" ++
     "  The tables resource is read-only in this CLI.\n" ++
     "  Use rows commands to mutate data in an existing table.\n" ++
+    "  Coda API v1 does not expose a documented create-table endpoint.\n" ++
+    "  To get tables into a new doc, create the doc from a sourceDoc template copy.\n" ++
     "\n" ++
     "Aliases:\n" ++
     "  --doc-id    Alias of --doc\n" ++
-    "  --table-id  Alias of --table\n";
+    "  --table-id  Alias of --table\n" ++
+    "\n" ++
+    "Docs:\n" ++
+    "  README: https://github.com/JonathanRiche/coda-zig#readme\n" ++
+    "  Coda API: https://coda.io/developers/apis/v1#tag/Tables-and-Views\n";
 
 const HELP_VIEWS_TEXT =
     "Usage:\n" ++

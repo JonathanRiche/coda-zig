@@ -2,6 +2,11 @@
 
 Small Zig CLI for Coda API v1 with broad coverage across read and mutation endpoints.
 
+Project links:
+
+- GitHub: https://github.com/JonathanRiche/coda-zig
+- Coda API v1 docs: https://coda.io/developers/apis/v1
+
 ## Highlights
 
 - Zig stdlib-first implementation
@@ -10,7 +15,157 @@ Small Zig CLI for Coda API v1 with broad coverage across read and mutation endpo
 - Pagination support for both `nextPageLink` and `nextPageToken`
 - Human-readable output by default, raw JSON with `--json`
 - Row upsert payload input from inline JSON (`--payload`) or file (`--file`)
+- Page creation and page body updates for canvas pages
 - Coverage for docs/folders/pages/tables/rows/permissions/publishing/analytics/account/workspaces/domains
+
+## Capability summary
+
+What this CLI can do well:
+
+- Create, update, delete, and copy docs
+- Create, update, delete, export, and inspect pages
+- Append or replace body content on existing canvas pages using `pages update`
+- Read tables, views, columns, formulas, controls, permissions, analytics, and workspace metadata
+- Insert, upsert, update, delete, and button-click rows in existing tables
+
+Important limits:
+
+- The `tables` resource is read-only in this CLI because Coda API v1 only documents `list` and `get` table endpoints
+- There is no documented Coda API v1 endpoint for creating a table directly
+- If you need a new doc with tables already present, create the doc from a `sourceDoc` template copy
+- Page body writes are supported for canvas pages; the API docs do not document arbitrary block insertion outside `pages update`
+
+## Page content writes
+
+For existing canvas pages, the body update path is:
+
+- `coda pages update --doc <docId> --page <pageIdOrName> --payload <json>`
+
+The payload shape for page body updates is:
+
+```json
+{
+  "contentUpdate": {
+    "insertionMode": "append",
+    "canvasContent": {
+      "format": "markdown",
+      "content": "# Heading\n\nBody text"
+    }
+  }
+}
+```
+
+Notes:
+
+- `insertionMode` is typically `append` or `replace`
+- `canvasContent.format` is documented for `markdown` and `html`
+- `canvasContent.content` is the body text to write
+- `pages update` can also include metadata fields like `name`, `subtitle`, `iconName`, `imageUrl`, and `isHidden`
+- `pages content` reads page elements, and `pages content-delete` deletes page content, but the write/update path is still `pages update`
+
+Examples:
+
+Append markdown to an existing page:
+
+```bash
+coda pages update \
+  --doc AbCDeFGH \
+  --page canvas-xyz123 \
+  --payload '{
+    "contentUpdate": {
+      "insertionMode": "append",
+      "canvasContent": {
+        "format": "markdown",
+        "content": "## New section\n\nThis text was appended by the API."
+      }
+    }
+  }'
+```
+
+Replace an existing page body:
+
+```bash
+coda pages update \
+  --doc AbCDeFGH \
+  --page canvas-xyz123 \
+  --payload '{
+    "contentUpdate": {
+      "insertionMode": "replace",
+      "canvasContent": {
+        "format": "markdown",
+        "content": "# Replaced page\n\nOld content is removed."
+      }
+    }
+  }'
+```
+
+Append HTML:
+
+```bash
+coda pages update \
+  --doc AbCDeFGH \
+  --page canvas-xyz123 \
+  --payload '{
+    "contentUpdate": {
+      "insertionMode": "append",
+      "canvasContent": {
+        "format": "html",
+        "content": "<p><b>Hello</b> from the API.</p>"
+      }
+    }
+  }'
+```
+
+Markdown tables can be sent as markdown content, for example:
+
+```bash
+coda pages update \
+  --doc AbCDeFGH \
+  --page canvas-xyz123 \
+  --payload '{
+    "contentUpdate": {
+      "insertionMode": "append",
+      "canvasContent": {
+        "format": "markdown",
+        "content": "| Name | Status |\n|---|---|\n| Launch | Ready |"
+      }
+    }
+  }'
+```
+
+This sends a markdown table into the page body. Coda API v1 does not document that this becomes a native Coda table object, so treat it as page content import rather than table creation.
+
+Primary references:
+
+- Update page: https://coda.io/developers/apis/v1#tag/Doc-Structure/operation/updatePage
+- Create page: https://coda.io/developers/apis/v1#tag/Doc-Structure/operation/createPage
+- Page endpoints announcement: https://connect.superhuman.com/t/more-powerful-page-endpoints-in-the-coda-api/44103
+
+## Table creation limit
+
+The CLI does not expose `tables create` because the Coda API v1 docs do not document a table creation endpoint.
+
+What is supported:
+
+- `tables list`
+- `tables get`
+- `rows upsert`
+- `rows update`
+- `rows delete`
+
+If you need a doc to start with tables, use doc copy/template flow:
+
+```bash
+coda docs create --payload '{
+  "title": "New doc from template",
+  "sourceDoc": "AbCDeFGH"
+}'
+```
+
+Reference:
+
+- Create doc: https://coda.io/developers/apis/v1#tag/Docs/operation/createDoc
+- Tables and views: https://coda.io/developers/apis/v1#tag/Tables-and-Views
 
 ## Auth
 
@@ -68,10 +223,22 @@ Help is available at three levels:
 - `coda pages export --doc <docId> --page <pageIdOrName> --payload <json>`
 - `coda pages export-status --doc <docId> --page <pageIdOrName> --request <requestId>`
 
+Page-specific notes:
+
+- `pages update` is the write path for both metadata changes and canvas page body updates
+- Body updates are sent in `contentUpdate`
+- Documented formats for page body updates are `markdown` and `html`
+
 ### Tables
 
 - `coda tables list --doc <docId>`
 - `coda tables get --doc <docId> --table <tableIdOrName>`
+
+Table-specific notes:
+
+- Table create/update/delete endpoints are not documented by Coda API v1
+- Use `rows` commands to mutate data inside an existing table
+- Use `docs create` with `sourceDoc` if you need a new doc that already contains tables
 
 ### Views
 
@@ -292,4 +459,6 @@ zig build run -- --json rows list --doc AbCDeFGH --table grid-pqRstUv
 - Endpoints used are from Coda API v1 (`/apis/v1`).
 - Some mutation-related endpoints can vary by account/tenant rollout; `controls set` uses a PUT-first, POST-fallback strategy.
 - `rows upsert` payload shape is passed through as provided. The CLI does not enforce schema beyond requiring payload input.
+- `pages update` payloads are also passed through as provided, which allows `contentUpdate` for canvas page body writes.
+- The CLI help output links to both the GitHub README and the Coda API docs for deeper reference.
 - Human output is concise; use `--json` for scripting and full response details.
