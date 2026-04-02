@@ -8,6 +8,7 @@ const USAGE_TEXT =
     "Usage:\n" ++
     "  coda [--token <token>] [--json] docs list\n" ++
     "  coda [--token <token>] [--json] folders list\n" ++
+    "  coda [--token <token>] [--json] pages list --doc <docId>\n" ++
     "  coda [--token <token>] [--json] tables list --doc <docId>\n" ++
     "  coda [--token <token>] [--json] views list --doc <docId>\n" ++
     "  coda [--token <token>] [--json] rows list --doc <docId> --table <tableIdOrName> [--query <query>] [--limit <n>]\n" ++
@@ -20,6 +21,30 @@ const USAGE_TEXT =
     "Global flags:\n" ++
     "  --token <token>  Coda API token\n" ++
     "  --json, -j       Render raw JSON output\n" ++
+    "\n" ++
+    "Resources:\n" ++
+    "  docs         list, get, create, update, delete docs\n" ++
+    "  pages        list, get, create, update, delete, content, export pages in a doc\n" ++
+    "  tables       list, get tables in a doc\n" ++
+    "  rows         list, get, upsert, update, delete rows in existing tables\n" ++
+    "  columns      list, get columns in a table\n" ++
+    "  views        list, get views in a doc\n" ++
+    "  folders      list, get, create, update, delete folders\n" ++
+    "  formulas     list, get formulas in a doc\n" ++
+    "  controls     list, get, set controls in a doc\n" ++
+    "  permissions  list, add, delete permissions and update ACL settings\n" ++
+    "  publish      get categories, set or unset doc publishing\n" ++
+    "  automations  trigger rules\n" ++
+    "  domains      list, add, update, delete custom domains, get provider\n" ++
+    "  account      whoami\n" ++
+    "  analytics    docs, pages, packs, formulas, summary, updated feeds\n" ++
+    "  resolve      resolve browser links\n" ++
+    "  workspaces   list roles/users, set user role\n" ++
+    "  mutations    get mutation/request status\n" ++
+    "\n" ++
+    "Notes:\n" ++
+    "  Tables are read-only at the table resource level in this CLI.\n" ++
+    "  Use pages to create/edit doc structure and rows to mutate data in existing tables.\n" ++
     "\n" ++
     "Env:\n" ++
     "  CODA_API_TOKEN  Coda API token (used if --token is not provided)\n";
@@ -48,6 +73,174 @@ const HELP_ROWS_TEXT =
     "Aliases:\n" ++
     "  --doc-id, --table-id, --row-id\n" ++
     "  --filter (alias of --query), --page-size (alias of --limit)\n";
+
+const HELP_FOLDERS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] folders list [--workspace <workspaceId>] [--is-starred <true|false>] [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] folders create (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] folders get --folder <folderId>\n" ++
+    "  coda [--token <token>] [--json] folders update --folder <folderId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] folders delete --folder <folderId>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --workspace-id  Alias of --workspace\n" ++
+    "  --folder-id     Alias of --folder\n" ++
+    "  --page-size     Alias of --limit\n";
+
+const HELP_PAGES_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] pages list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] pages get --doc <docId> --page <pageIdOrName>\n" ++
+    "  coda [--token <token>] [--json] pages create --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] pages update --doc <docId> --page <pageIdOrName> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] pages delete --doc <docId> --page <pageIdOrName>\n" ++
+    "  coda [--token <token>] [--json] pages content --doc <docId> --page <pageIdOrName>\n" ++
+    "  coda [--token <token>] [--json] pages content-delete --doc <docId> --page <pageIdOrName>\n" ++
+    "  coda [--token <token>] [--json] pages export --doc <docId> --page <pageIdOrName> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] pages export-status --doc <docId> --page <pageIdOrName> --request <requestId>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id   Alias of --doc\n" ++
+    "  --page-id  Alias of --page\n" ++
+    "  --request-id  Alias of --request\n";
+
+const HELP_TABLES_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] tables list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] tables get --doc <docId> --table <tableIdOrName> [--use-updated-table-layouts <true|false>]\n" ++
+    "\n" ++
+    "Notes:\n" ++
+    "  The tables resource is read-only in this CLI.\n" ++
+    "  Use rows commands to mutate data in an existing table.\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id    Alias of --doc\n" ++
+    "  --table-id  Alias of --table\n";
+
+const HELP_VIEWS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] views list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] views get --doc <docId> --view <viewIdOrName>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id   Alias of --doc\n" ++
+    "  --view-id  Alias of --view\n";
+
+const HELP_COLUMNS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] columns list --doc <docId> --table <tableIdOrName> [--limit <n>] [--visible-only <true|false>]\n" ++
+    "  coda [--token <token>] [--json] columns get --doc <docId> --table <tableIdOrName> --column <columnIdOrName>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id     Alias of --doc\n" ++
+    "  --table-id   Alias of --table\n" ++
+    "  --column-id  Alias of --column\n" ++
+    "  --page-size  Alias of --limit\n";
+
+const HELP_FORMULAS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] formulas list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] formulas get --doc <docId> --formula <formulaIdOrName>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id      Alias of --doc\n" ++
+    "  --formula-id  Alias of --formula\n";
+
+const HELP_CONTROLS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] controls list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] controls get --doc <docId> --control <controlIdOrName>\n" ++
+    "  coda [--token <token>] [--json] controls set --doc <docId> --control <controlIdOrName> --value <text>\n" ++
+    "  coda [--token <token>] [--json] controls set --doc <docId> --control <controlIdOrName> --value-json <json>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id      Alias of --doc\n" ++
+    "  --control-id  Alias of --control\n";
+
+const HELP_PERMISSIONS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] permissions metadata --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] permissions list --doc <docId> [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] permissions add --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] permissions delete --doc <docId> --permission <permissionId>\n" ++
+    "  coda [--token <token>] [--json] permissions principals --doc <docId> [--query <text>] [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] permissions settings --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] permissions settings-update --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id         Alias of --doc\n" ++
+    "  --permission-id  Alias of --permission\n" ++
+    "  --page-size      Alias of --limit\n";
+
+const HELP_PUBLISH_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] publish categories --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] publish set --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] publish unset --doc <docId>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id  Alias of --doc\n";
+
+const HELP_AUTOMATIONS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] automations trigger --doc <docId> --rule <ruleId> [--payload <json>] [--file <path>]\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id   Alias of --doc\n" ++
+    "  --rule-id  Alias of --rule\n";
+
+const HELP_DOMAINS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] domains list --doc <docId>\n" ++
+    "  coda [--token <token>] [--json] domains add --doc <docId> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] domains update --doc <docId> --domain <customDomain> (--payload <json> | --file <path>)\n" ++
+    "  coda [--token <token>] [--json] domains delete --doc <docId> --domain <customDomain>\n" ++
+    "  coda [--token <token>] [--json] domains provider --domain <customDomain>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id  Alias of --doc\n";
+
+const HELP_ACCOUNT_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] account whoami\n";
+
+const HELP_ANALYTICS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] analytics docs [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] analytics doc-pages --doc <docId> [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] analytics docs-summary\n" ++
+    "  coda [--token <token>] [--json] analytics packs [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] analytics packs-summary\n" ++
+    "  coda [--token <token>] [--json] analytics pack-formulas --pack <packId> [--pack-formula-names <csv>] [--pack-formula-types <csv>] [--limit <n>]\n" ++
+    "  coda [--token <token>] [--json] analytics updated\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --doc-id   Alias of --doc\n" ++
+    "  --pack-id  Alias of --pack\n" ++
+    "  --page-size  Alias of --limit\n";
+
+const HELP_RESOLVE_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] resolve link --url <browserLink> [--degrade-gracefully <true|false>]\n";
+
+const HELP_WORKSPACES_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] workspaces roles --workspace <workspaceId>\n" ++
+    "  coda [--token <token>] [--json] workspaces users --workspace <workspaceId> [--included-roles <csv>]\n" ++
+    "  coda [--token <token>] [--json] workspaces set-role --workspace <workspaceId> (--payload <json> | --file <path>)\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --workspace-id  Alias of --workspace\n";
+
+const HELP_MUTATIONS_TEXT =
+    "Usage:\n" ++
+    "  coda [--token <token>] [--json] mutations get --request <requestId>\n" ++
+    "  coda [--token <token>] [--json] mutations get --doc <docId> --mutation <mutationId>\n" ++
+    "\n" ++
+    "Aliases:\n" ++
+    "  --request-id   Alias of --request\n" ++
+    "  --doc-id       Alias of --doc\n" ++
+    "  --mutation-id  Alias of --mutation\n";
 
 const CliError = error{
     Usage,
@@ -1522,6 +1715,31 @@ fn printHelp(target: HelpSelection) void {
         return;
     }
 
+    if (std.mem.eql(u8, resource, "folders")) {
+        printStdout("{s}", .{HELP_FOLDERS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "pages")) {
+        printStdout("{s}", .{HELP_PAGES_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "tables")) {
+        printStdout("{s}", .{HELP_TABLES_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "views")) {
+        printStdout("{s}", .{HELP_VIEWS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "columns")) {
+        printStdout("{s}", .{HELP_COLUMNS_TEXT});
+        return;
+    }
+
     if (std.mem.eql(u8, resource, "rows")) {
         if (target.action) |action| {
             if (std.mem.eql(u8, action, "list")) {
@@ -1542,6 +1760,61 @@ fn printHelp(target: HelpSelection) void {
             }
         }
         printStdout("{s}", .{HELP_ROWS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "formulas")) {
+        printStdout("{s}", .{HELP_FORMULAS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "controls")) {
+        printStdout("{s}", .{HELP_CONTROLS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "permissions")) {
+        printStdout("{s}", .{HELP_PERMISSIONS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "publish")) {
+        printStdout("{s}", .{HELP_PUBLISH_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "automations")) {
+        printStdout("{s}", .{HELP_AUTOMATIONS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "domains")) {
+        printStdout("{s}", .{HELP_DOMAINS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "account")) {
+        printStdout("{s}", .{HELP_ACCOUNT_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "analytics")) {
+        printStdout("{s}", .{HELP_ANALYTICS_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "resolve")) {
+        printStdout("{s}", .{HELP_RESOLVE_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "workspaces")) {
+        printStdout("{s}", .{HELP_WORKSPACES_TEXT});
+        return;
+    }
+
+    if (std.mem.eql(u8, resource, "mutations")) {
+        printStdout("{s}", .{HELP_MUTATIONS_TEXT});
         return;
     }
 
