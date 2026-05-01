@@ -7,6 +7,20 @@ Project links:
 - GitHub: https://github.com/JonathanRiche/coda-zig
 - Coda API v1 docs: https://coda.io/developers/apis/v1
 
+## Install
+
+Download the latest prebuilt CLI archive from GitHub Releases:
+
+- Releases: https://github.com/JonathanRiche/coda-zig/releases
+
+Available builds:
+
+- Linux x86_64: `coda-<version>-linux-x86_64.tar.gz`
+- macOS Apple Silicon: `coda-<version>-macos-aarch64.tar.gz`
+- Windows x86_64: `coda-<version>-windows-x86_64.zip`
+
+Each release includes SHA256 checksum files.
+
 ## Highlights
 
 - Zig stdlib-first implementation
@@ -183,18 +197,9 @@ coda --token your-token docs list
 
 ## Releases
 
-Download prebuilt CLI archives from the GitHub Releases page:
-
-- Releases: https://github.com/JonathanRiche/coda-zig/releases
-
-Choose the asset for your platform:
-
-- Linux x86_64: `coda-<version>-linux-x86_64.tar.gz`
-- macOS Apple Silicon: `coda-<version>-macos-aarch64.tar.gz`
-- Windows x86_64: `coda-<version>-windows-x86_64.zip`
-
-Each release also includes SHA256 checksum files. Maintainers can publish a new
-release by pushing a `v*` tag, for example `v0.1.0`.
+Maintainers can publish a new release by pushing a `v*` tag, for example
+`v0.1.0`. GitHub Actions builds Linux, macOS, and Windows archives and attaches
+them to the release.
 
 ## Command catalog
 
