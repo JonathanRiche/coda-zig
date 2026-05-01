@@ -181,6 +181,21 @@ Or pass it directly:
 coda --token your-token docs list
 ```
 
+## Releases
+
+Download prebuilt CLI archives from the GitHub Releases page:
+
+- Releases: https://github.com/JonathanRiche/coda-zig/releases
+
+Choose the asset for your platform:
+
+- Linux x86_64: `coda-<version>-linux-x86_64.tar.gz`
+- macOS Apple Silicon: `coda-<version>-macos-aarch64.tar.gz`
+- Windows x86_64: `coda-<version>-windows-x86_64.zip`
+
+Each release also includes SHA256 checksum files. Maintainers can publish a new
+release by pushing a `v*` tag, for example `v0.1.0`.
+
 ## Command catalog
 
 Global flags are accepted anywhere in the command:

@@ -4,6 +4,9 @@ const builtin = @import("builtin");
 
 const BASE_URL = "https://coda.io/apis/v1";
 
+var stdio: std.Io = undefined;
+var stdio_initialized = false;
+
 const USAGE_TEXT =
     "Usage:\n" ++
     "  coda [--token <token>] [--json] docs list\n" ++
@@ -304,6 +307,7 @@ const ApiResponse = struct {
 
 const ApiClient = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     token: []const u8,
 
     fn get(self: ApiClient, path_or_url: []const u8) !ApiResponse {
@@ -327,7 +331,7 @@ const ApiClient = struct {
     }
 
     fn request(self: ApiClient, method: std.http.Method, path_or_url: []const u8, body: ?[]const u8) !ApiResponse {
-        var client: std.http.Client = .{ .allocator = self.allocator };
+        var client: std.http.Client = .{ .allocator = self.allocator, .io = self.io };
         defer client.deinit();
 
         const full_url = try buildUrl(self.allocator, path_or_url);
@@ -384,19 +388,15 @@ const PagedItems = struct {
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !u8 {
+    stdio = init.io;
+    stdio_initialized = true;
 
-    const exit_code = run(allocator) catch |err| handleCliError(err);
-    if (exit_code != 0) std.process.exit(exit_code);
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    return run(init.gpa, args, init.environ_map) catch |err| handleCliError(err);
 }
 
-fn run(allocator: std.mem.Allocator) !u8 {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
+fn run(allocator: std.mem.Allocator, args: []const []const u8, environ_map: *std.process.Environ.Map) !u8 {
     if (args.len == 1) {
         printUsageStdout();
         return 0;
@@ -422,10 +422,10 @@ fn run(allocator: std.mem.Allocator) !u8 {
     const cmd_args = parsed.positionals;
     const cmd_start: usize = 2;
 
-    const resolved_token = try resolveToken(parsed.opts, allocator);
+    const resolved_token = try resolveToken(parsed.opts, allocator, environ_map);
     defer resolved_token.deinit(allocator);
 
-    const api: ApiClient = .{ .allocator = allocator, .token = resolved_token.value };
+    const api: ApiClient = .{ .allocator = allocator, .io = stdio, .token = resolved_token.value };
 
     if (std.mem.eql(u8, resource, "docs")) {
         try cmdDocs(allocator, api, action, cmd_args, cmd_start, parsed.opts.json);
@@ -1527,7 +1527,9 @@ fn buildUrl(allocator: std.mem.Allocator, path_or_url: []const u8) ![]u8 {
 
 fn appendParam(allocator: std.mem.Allocator, out: *std.ArrayList(u8), key: []const u8, value: []const u8) !void {
     if (out.items.len > 0) try out.append(allocator, '&');
-    try out.writer(allocator).print("{s}={s}", .{ key, value });
+    const param = try std.fmt.allocPrint(allocator, "{s}={s}", .{ key, value });
+    defer allocator.free(param);
+    try out.appendSlice(allocator, param);
 }
 
 fn appendQueryParam(allocator: std.mem.Allocator, url: []const u8, key: []const u8, value: []const u8) ![]u8 {
@@ -1548,7 +1550,7 @@ fn readPayload(allocator: std.mem.Allocator, args: []const []const u8, start: us
         return allocator.dupe(u8, inline_payload);
     }
     if (file) |path| {
-        const body = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024 * 8);
+        const body = try std.Io.Dir.cwd().readFileAlloc(stdio, path, allocator, .limited(1024 * 1024 * 8));
         errdefer allocator.free(body);
         try ensureValidJson(body, "--file");
         return body;
@@ -1677,12 +1679,13 @@ fn parseCommandLine(allocator: std.mem.Allocator, args: []const []const u8) !str
     return .{ .opts = opts, .positionals = try positionals.toOwnedSlice(allocator) };
 }
 
-fn resolveToken(opts: GlobalOptions, allocator: std.mem.Allocator) !ResolvedToken {
+fn resolveToken(opts: GlobalOptions, allocator: std.mem.Allocator, environ_map: *std.process.Environ.Map) !ResolvedToken {
     if (opts.token) |token| {
         return .{ .value = token, .owned = false };
     }
 
-    const token = std.process.getEnvVarOwned(allocator, "CODA_API_TOKEN") catch return CliError.MissingToken;
+    const token_value = environ_map.get("CODA_API_TOKEN") orelse return CliError.MissingToken;
+    const token = try allocator.dupe(u8, token_value);
     return .{ .value = token, .owned = true };
 }
 
@@ -1942,16 +1945,17 @@ fn printUsageStderr() void {
 }
 
 fn printStdout(comptime format: []const u8, args: anytype) void {
+    if (builtin.is_test or !stdio_initialized) return;
     var buf: [4096]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(&buf);
+    var writer = std.Io.File.stdout().writer(stdio, &buf);
     defer writer.interface.flush() catch {};
     writer.interface.print(format, args) catch {};
 }
 
 fn printStderr(comptime format: []const u8, args: anytype) void {
-    if (builtin.is_test) return;
+    if (builtin.is_test or !stdio_initialized) return;
     var buf: [4096]u8 = undefined;
-    var writer = std.fs.File.stderr().writer(&buf);
+    var writer = std.Io.File.stderr().writer(stdio, &buf);
     defer writer.interface.flush() catch {};
     writer.interface.print(format, args) catch {};
 }
